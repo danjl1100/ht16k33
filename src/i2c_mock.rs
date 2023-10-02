@@ -49,9 +49,44 @@ impl I2cMock {
     }
 }
 
-impl hal::blocking::i2c::WriteRead for I2cMock {
-    type Error = I2cMockError;
+impl hal::i2c::Error for I2cMockError {
+    fn kind(&self) -> hal::i2c::ErrorKind {
+        hal::i2c::ErrorKind::Other
+    }
+}
 
+impl hal::i2c::ErrorType for I2cMock {
+    type Error = I2cMockError;
+}
+impl hal::i2c::I2c for I2cMock {
+    fn transaction(
+        &mut self,
+        address: u8,
+        mut operations: &mut [hal::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        while let Some((first, rest)) = operations.split_first_mut() {
+            operations = rest;
+            match first {
+                hal::i2c::Operation::Read(_) => todo!(),
+                hal::i2c::Operation::Write(write_bytes) => {
+                    if matches!(operations.first(), Some(hal::i2c::Operation::Read(_))) {
+                        let Some((hal::i2c::Operation::Read(read_bytes), rest)) =
+                            operations.split_first_mut()
+                        else {
+                            unreachable!()
+                        };
+                        operations = rest;
+                        self.write_read(address, write_bytes, read_bytes)?;
+                    } else {
+                        self.write(address, write_bytes)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+impl I2cMock {
     /// `write_read` implementation.
     ///
     /// # Arguments
@@ -63,7 +98,7 @@ impl hal::blocking::i2c::WriteRead for I2cMock {
     /// # Examples
     ///
     /// ```
-    /// # use embedded_hal::blocking::i2c::WriteRead;
+    /// # use embedded_hal::i2c::I2c;
     /// # use ht16k33::i2c_mock::I2cMock;
     /// # fn main() {
     /// let mut i2c_mock = I2cMock::new();
@@ -78,7 +113,7 @@ impl hal::blocking::i2c::WriteRead for I2cMock {
         _address: u8,
         bytes: &[u8],
         buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), I2cMockError> {
         // The `bytes` have the `data_address` command + index to start reading from,
         // need to clear the command to extract the starting index.
         let mut data_offset = (bytes[0] ^ DisplayDataAddress::ROW_0.bits()) as usize;
@@ -92,10 +127,6 @@ impl hal::blocking::i2c::WriteRead for I2cMock {
 
         Ok(())
     }
-}
-
-impl hal::blocking::i2c::Write for I2cMock {
-    type Error = I2cMockError;
 
     /// `write` implementation.
     ///
@@ -107,7 +138,7 @@ impl hal::blocking::i2c::Write for I2cMock {
     /// # Examples
     ///
     /// ```
-    /// # use embedded_hal::blocking::i2c::Write;
+    /// # use embedded_hal::i2c::I2c;
     /// # use ht16k33::i2c_mock::I2cMock;
     /// # fn main() {
     /// let mut i2c_mock = I2cMock::new();
@@ -120,7 +151,7 @@ impl hal::blocking::i2c::Write for I2cMock {
     ///
     /// # }
     /// ```
-    fn write(&mut self, _address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+    fn write(&mut self, _address: u8, bytes: &[u8]) -> Result<(), I2cMockError> {
         // "Command-only" writes are length 1 and write-only, and cannot be read back,
         // discard them for simplicity.
         if bytes.len() == 1 {
@@ -145,7 +176,6 @@ impl hal::blocking::i2c::Write for I2cMock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hal::blocking::i2c::{Write, WriteRead};
 
     const ADDRESS: u8 = 0;
 
