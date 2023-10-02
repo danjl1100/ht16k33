@@ -2,7 +2,6 @@
 //!
 //! A mock I2C library to support using the [HT16K33](../struct.HT16K33.html) driver on non-Linux systems that do
 //! not have I2C support.
-use embedded_hal as hal;
 
 use core::fmt;
 
@@ -49,43 +48,83 @@ impl I2cMock {
     }
 }
 
-impl hal::i2c::Error for I2cMockError {
-    fn kind(&self) -> hal::i2c::ErrorKind {
-        hal::i2c::ErrorKind::Other
-    }
-}
+mod blocking {
+    use super::{I2cMock, I2cMockError};
+    use embedded_hal as hal;
 
-impl hal::i2c::ErrorType for I2cMock {
-    type Error = I2cMockError;
-}
-impl hal::i2c::I2c for I2cMock {
-    fn transaction(
-        &mut self,
-        address: u8,
-        mut operations: &mut [hal::i2c::Operation<'_>],
-    ) -> Result<(), Self::Error> {
-        while let Some((first, rest)) = operations.split_first_mut() {
-            operations = rest;
-            match first {
-                hal::i2c::Operation::Read(_) => todo!(),
-                hal::i2c::Operation::Write(write_bytes) => {
-                    if matches!(operations.first(), Some(hal::i2c::Operation::Read(_))) {
-                        let Some((hal::i2c::Operation::Read(read_bytes), rest)) =
-                            operations.split_first_mut()
-                        else {
-                            unreachable!()
-                        };
-                        operations = rest;
-                        self.write_read(address, write_bytes, read_bytes)?;
-                    } else {
-                        self.write(address, write_bytes)?;
+    impl hal::i2c::Error for I2cMockError {
+        fn kind(&self) -> hal::i2c::ErrorKind {
+            hal::i2c::ErrorKind::Other
+        }
+    }
+
+    impl hal::i2c::ErrorType for I2cMock {
+        type Error = I2cMockError;
+    }
+    impl hal::i2c::I2c for I2cMock {
+        fn transaction(
+            &mut self,
+            address: u8,
+            mut operations: &mut [hal::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            while let Some((first, rest)) = operations.split_first_mut() {
+                operations = rest;
+                match first {
+                    hal::i2c::Operation::Read(_) => todo!(),
+                    hal::i2c::Operation::Write(write_bytes) => {
+                        if matches!(operations.first(), Some(hal::i2c::Operation::Read(_))) {
+                            let Some((hal::i2c::Operation::Read(read_bytes), rest)) =
+                                operations.split_first_mut()
+                            else {
+                                unreachable!()
+                            };
+                            operations = rest;
+                            self.write_read(address, write_bytes, read_bytes)?;
+                        } else {
+                            self.write(address, write_bytes)?;
+                        }
                     }
                 }
             }
+            Ok(())
         }
-        Ok(())
     }
 }
+
+mod non_blocking {
+    use super::I2cMock;
+    use embedded_hal_async as hal;
+
+    impl hal::i2c::I2c for I2cMock {
+        async fn transaction(
+            &mut self,
+            address: u8,
+            mut operations: &mut [hal::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            while let Some((first, rest)) = operations.split_first_mut() {
+                operations = rest;
+                match first {
+                    hal::i2c::Operation::Read(_) => todo!(),
+                    hal::i2c::Operation::Write(write_bytes) => {
+                        if matches!(operations.first(), Some(hal::i2c::Operation::Read(_))) {
+                            let Some((hal::i2c::Operation::Read(read_bytes), rest)) =
+                                operations.split_first_mut()
+                            else {
+                                unreachable!()
+                            };
+                            operations = rest;
+                            self.write_read(address, write_bytes, read_bytes)?;
+                        } else {
+                            self.write(address, write_bytes)?;
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
 impl I2cMock {
     /// `write_read` implementation.
     ///
